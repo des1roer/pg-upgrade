@@ -19,6 +19,7 @@ services:
       --initial-cluster etcd=http://etcd:2380
       --initial-cluster-state new
       --initial-cluster-token etcd-cluster-patroni
+      --enable-v2
     volumes:
       - etcd-data:/etcd-data
     restart: unless-stopped
@@ -32,17 +33,17 @@ services:
 
   # ========== Patroni + PostgreSQL Node 1 (инициализатор) ==========
   postgresql1:
-    image: ghcr.io/zalando/spilo-17:latest
+    image: ghcr.io/zalando/spilo-17:4.0-p3
     container_name: patroni-pg1
     ports:
-      - "5432:5432"   # PostgreSQL
+      - "5442:5432"   # PostgreSQL
       - "8008:8008"   # Patroni REST API
     environment:
       ETCD_HOST: etcd:2379
       SCOPE: dc1
       GROUP: postgresql
       # Инициализация БД (только на первом узле)
-      EASY_INITDB: "myuser:mypassword:mydb"
+      EASY_INITDB: "admin:admin:mydb"
       # Общие пароли для всех узлов
       PATRONI_SUPERUSER_USERNAME: postgres
       PATRONI_SUPERUSER_PASSWORD: superpass
@@ -67,7 +68,7 @@ services:
 
   # ========== Patroni + PostgreSQL Node 2 ==========
   postgresql2:
-    image: ghcr.io/zalando/spilo-17:latest
+    image: ghcr.io/zalando/spilo-17:4.0-p3
     container_name: patroni-pg2
     ports:
       - "5433:5432"
@@ -97,7 +98,7 @@ services:
 
   # ========== Patroni + PostgreSQL Node 3 ==========
   postgresql3:
-    image: ghcr.io/zalando/spilo-17:latest
+    image: ghcr.io/zalando/spilo-17:4.0-p3
     container_name: patroni-pg3
     ports:
       - "5434:5432"
