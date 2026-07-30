@@ -1,0 +1,153 @@
+version: '3.8'
+
+services:
+  # ========== etcd (координатор) ==========
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: patroni-etcd
+    ports:
+      - "2379:2379"   # клиентский порт
+      - "2380:2380"   # peer-порт
+    command: >
+      /usr/local/bin/etcd
+      --data-dir=/etcd-data
+      --listen-client-urls http://0.0.0.0:2379
+      --listen-peer-urls http://0.0.0.0:2380
+      --advertise-client-urls http://etcd:2379
+      --initial-advertise-peer-urls http://etcd:2380
+      --name etcd
+      --initial-cluster etcd=http://etcd:2380
+      --initial-cluster-state new
+      --initial-cluster-token etcd-cluster-patroni
+    volumes:
+      - etcd-data:/etcd-data
+    restart: unless-stopped
+    networks:
+      - pg-cluster
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ========== Patroni + PostgreSQL Node 1 (инициализатор) ==========
+  postgresql1:
+    image: ghcr.io/zalando/spilo-17:latest
+    container_name: patroni-pg1
+    ports:
+      - "5432:5432"   # PostgreSQL
+      - "8008:8008"   # Patroni REST API
+    environment:
+      ETCD_HOST: etcd:2379
+      SCOPE: dc1
+      GROUP: postgresql
+      # Инициализация БД (только на первом узле)
+      EASY_INITDB: "myuser:mypassword:mydb"
+      # Общие пароли для всех узлов
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: superpass
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replpass
+      # Адрес для подключения других узлов (внутри Docker-сети)
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: postgresql1:5432
+      # Дополнительные параметры PostgreSQL
+      PATRONI_POSTGRESQL_PARAMETERS: "max_connections=100,shared_buffers=128MB"
+    volumes:
+      - patroni-pg1-data:/home/postgres/pgdata
+    restart: unless-stopped
+    depends_on:
+      - etcd
+    networks:
+      - pg-cluster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== Patroni + PostgreSQL Node 2 ==========
+  postgresql2:
+    image: ghcr.io/zalando/spilo-17:latest
+    container_name: patroni-pg2
+    ports:
+      - "5433:5432"
+      - "8009:8008"
+    environment:
+      ETCD_HOST: etcd:2379
+      SCOPE: dc1
+      GROUP: postgresql
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: superpass
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replpass
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: postgresql2:5432
+      PATRONI_POSTGRESQL_PARAMETERS: "max_connections=100,shared_buffers=128MB"
+    volumes:
+      - patroni-pg2-data:/home/postgres/pgdata
+    restart: unless-stopped
+    depends_on:
+      - etcd
+    networks:
+      - pg-cluster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== Patroni + PostgreSQL Node 3 ==========
+  postgresql3:
+    image: ghcr.io/zalando/spilo-17:latest
+    container_name: patroni-pg3
+    ports:
+      - "5434:5432"
+      - "8010:8008"
+    environment:
+      ETCD_HOST: etcd:2379
+      SCOPE: dc1
+      GROUP: postgresql
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: superpass
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replpass
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: postgresql3:5432
+      PATRONI_POSTGRESQL_PARAMETERS: "max_connections=100,shared_buffers=128MB"
+    volumes:
+      - patroni-pg3-data:/home/postgres/pgdata
+    restart: unless-stopped
+    depends_on:
+      - etcd
+    networks:
+      - pg-cluster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== pgAdmin (веб-интерфейс) ==========
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: patroni-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    restart: unless-stopped
+    depends_on:
+      - postgresql1
+    networks:
+      - pg-cluster
+
+# ========== Тома для постоянного хранения ==========
+volumes:
+  etcd-data:
+  patroni-pg1-data:
+  patroni-pg2-data:
+  patroni-pg3-data:
+
+# ========== Сеть ==========
+networks:
+  pg-cluster:
+    driver: bridge
