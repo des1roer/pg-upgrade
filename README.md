@@ -1,5 +1,7 @@
 # pg-upgrade
 
+https://pgconf.ru/talk/1588270 - презентация от разработчиков patroni
+
 ```bash
 docker exec patroni-pg1 psql -U postgres -d postgres -c "ALTER ROLE admin LOGIN;" -c "ALTER ROLE admin PASSWORD 'admin';"
 ```
