@@ -6,8 +6,8 @@ services:
     image: quay.io/coreos/etcd:v3.5.16
     container_name: patroni-etcd
     ports:
-      - "2379:2379"   # клиентский порт
-      - "2380:2380"   # peer-порт
+      - "2379:2379"
+      - "2380:2380"
     command: >
       /usr/local/bin/etcd
       --data-dir=/etcd-data
@@ -31,27 +31,23 @@ services:
       timeout: 5s
       retries: 3
 
-  # ========== Patroni + PostgreSQL Node 1 (инициализатор) ==========
+  # ========== Patroni + PostgreSQL Node 1 ==========
   postgresql1:
     image: ghcr.io/zalando/spilo-17:4.0-p3
     container_name: patroni-pg1
     ports:
-      - "5442:5432"   # PostgreSQL
-      - "8008:8008"   # Patroni REST API
+      - "5442:5432"
+      - "8008:8008"
     environment:
       ETCD_HOST: etcd:2379
       SCOPE: dc1
       GROUP: postgresql
-      # Инициализация БД (только на первом узле)
       EASY_INITDB: "admin:admin:mydb"
-      # Общие пароли для всех узлов
       PATRONI_SUPERUSER_USERNAME: postgres
       PATRONI_SUPERUSER_PASSWORD: superpass
       PATRONI_REPLICATION_USERNAME: replicator
       PATRONI_REPLICATION_PASSWORD: replpass
-      # Адрес для подключения других узлов (внутри Docker-сети)
       PATRONI_POSTGRESQL_CONNECT_ADDRESS: postgresql1:5432
-      # Дополнительные параметры PostgreSQL
       PATRONI_POSTGRESQL_PARAMETERS: "max_connections=100,shared_buffers=128MB"
     volumes:
       - patroni-pg1-data:/home/postgres/pgdata
@@ -71,12 +67,13 @@ services:
     image: ghcr.io/zalando/spilo-17:4.0-p3
     container_name: patroni-pg2
     ports:
-      - "5433:5432"
+      - "5443:5432"
       - "8009:8008"
     environment:
       ETCD_HOST: etcd:2379
       SCOPE: dc1
       GROUP: postgresql
+      EASY_INITDB: "admin:admin:mydb"
       PATRONI_SUPERUSER_USERNAME: postgres
       PATRONI_SUPERUSER_PASSWORD: superpass
       PATRONI_REPLICATION_USERNAME: replicator
@@ -101,12 +98,13 @@ services:
     image: ghcr.io/zalando/spilo-17:4.0-p3
     container_name: patroni-pg3
     ports:
-      - "5434:5432"
+      - "5444:5432"
       - "8010:8008"
     environment:
       ETCD_HOST: etcd:2379
       SCOPE: dc1
       GROUP: postgresql
+      EASY_INITDB: "admin:admin:mydb"
       PATRONI_SUPERUSER_USERNAME: postgres
       PATRONI_SUPERUSER_PASSWORD: superpass
       PATRONI_REPLICATION_USERNAME: replicator
@@ -126,29 +124,30 @@ services:
       timeout: 5s
       retries: 5
 
-  # ========== pgAdmin (веб-интерфейс) ==========
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: patroni-pgadmin
+  # ========== HAProxy (балансировка) ==========
+  haproxy:
+    image: haproxy:2.8
+    container_name: patroni-haproxy
     ports:
-      - "5050:80"
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    restart: unless-stopped
+      - "5000:5000"   # Write → Master
+      - "5001:5001"   # Read → Replicas
+      - "7000:7000"   # Stats UI
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
       - postgresql1
+      - postgresql2
+      - postgresql3
+    restart: unless-stopped
     networks:
       - pg-cluster
 
-# ========== Тома для постоянного хранения ==========
 volumes:
   etcd-data:
   patroni-pg1-data:
   patroni-pg2-data:
   patroni-pg3-data:
 
-# ========== Сеть ==========
 networks:
   pg-cluster:
     driver: bridge
