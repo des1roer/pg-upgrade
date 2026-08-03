@@ -37,12 +37,18 @@ SELECT 'Публикация создана: ' || pubname FROM pg_publication WH
 SQL
 
 # Шаг 3: Дамп схемы из PG17
+# Шаг 3a: Дамп ролей (если нужно перенести пользователей)
+echo "[3a/8] Дамп ролей из PG17..."
+$PG_DUMP \
+  --roles-only \
+  --file=/tmp/roles_pg17.sql \
+  "$DB_NAME"
+
+# Шаг 3b: Дамп схемы с owner и правами
 echo ""
 echo "[3/8] Дамп схемы PG17..."
 $PG_DUMP \
   --schema-only \
-  --no-owner \
-  --no-acl \
   --file=/tmp/schema_pg17.sql \
   "$DB_NAME"
 echo "✓ Схема сохранена"
@@ -50,6 +56,8 @@ echo "✓ Схема сохранена"
 # Шаг 4: Восстановление схемы в PG18
 echo ""
 echo "[4/8] Восстановление схемы в PG18..."
+# Шаг 4a: Восстановить роли (если дампили)
+docker exec patroni-pg1 cat /tmp/roles_pg17.sql | $PSQL18 -d "$DB_NAME"
 docker exec patroni-pg1 cat /tmp/schema_pg17.sql | $PSQL18 -d "$DB_NAME"
 echo "✓ Схема восстановлена в PG18"
 
