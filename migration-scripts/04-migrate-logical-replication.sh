@@ -49,6 +49,8 @@ echo ""
 echo "[3/8] Дамп схемы PG17..."
 $PG_DUMP \
   --schema-only \
+  --no-owner \
+  --no-acl \
   --file=/tmp/schema_pg17.sql \
   "$DB_NAME"
 echo "✓ Схема сохранена"
