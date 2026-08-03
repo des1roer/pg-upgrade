@@ -1,0 +1,42 @@
+# Образ для запуска pg_probackup внутри стенда (и в проде через bareos).
+# pg_probackup ставится из официального apt-репозитория PostgresPro
+# с pin'ом конкретной версии для воспроизводимости.
+
+FROM debian:bookworm-slim
+
+# Версия pg_probackup и major-версия PostgreSQL, которую он поддерживает.
+# Передаются как build-args из compose; pin закрывает supply chain
+# (apt по умолчанию тянет latest, что ломает байт-в-байт повторяемость сборок).
+ARG PROBACKUP_PG_VERSION=17
+ARG PROBACKUP_VERSION=2.5.16
+
+# ca-certificates + curl + gnupg — нужны на этапе сборки чтобы скачать
+# и распарсить GPG-ключ репозитория. После установки pg_probackup
+# их можно было бы покульно убрать ради тонкости образа, но runtime
+# им не мешает, а отладка с curl удобнее.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Подключаем apt-репо PostgresPro. signed-by заменяет deprecated apt-key.
+# Файл ключа GPG-KEY-PG-PROBACKUP (через дефис) — действующий с 2023 года
+# (fingerprint 8162 F7CE ... 81FC 5F61 D529 B63B). Старый GPG-KEY-PG_PROBACKUP
+# (через подчёркивание) тоже отдаётся репо, но им новые релизы НЕ подписаны.
+RUN install -d -m 0755 /etc/apt/keyrings && \
+    curl -fsSL https://repo.postgrespro.ru/pg_probackup/keys/GPG-KEY-PG-PROBACKUP \
+      | gpg --dearmor -o /etc/apt/keyrings/pg_probackup.gpg && \
+    . /etc/os-release && \
+    echo "deb [signed-by=/etc/apt/keyrings/pg_probackup.gpg arch=amd64] https://repo.postgrespro.ru/pg_probackup/deb/ ${VERSION_CODENAME} main-${VERSION_CODENAME}" \
+      > /etc/apt/sources.list.d/pg_probackup.list
+
+# Pin: версия pg_probackup жёстко фиксирована. apt сам подтянет
+# runtime-зависимости (libpq5, zlib1g, libc6).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      "pg-probackup-${PROBACKUP_PG_VERSION}=${PROBACKUP_VERSION}-*" \
+    && rm -rf /var/lib/apt/lists/*
+
+# Дефолт под собранную major-версию. compose/bareos-job могут
+# оверайднуть через env, если запускают backup.sh не той версии.
+ENV PROBACKUP_BIN=pg_probackup-${PROBACKUP_PG_VERSION}
+
+WORKDIR /scripts
